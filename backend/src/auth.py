@@ -13,18 +13,15 @@ def get_file_path(filename: str) -> Path | None:
 
 # The permissions we need (Read only)
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-TOKEN_FILE_NAME = "auth_token.json"
-AUTH_CREDENTIALS_FILE = get_file_path("auth_credentials.json")
+AUTH_TOKEN_PATH = get_file_path("auth_token.json")
+AUTH_CREDENTIALS_PATH = get_file_path("auth_credentials.json")
 
 
 def authenticate_gmail():
     creds = None
-    # 1. Check if we already have a token
     
-    token_path = get_file_path(TOKEN_FILE_NAME)
-    
-    if token_path and token_path.exists():
-        creds = Credentials.from_authorized_user_file(f'{TOKEN_FILE_NAME}', SCOPES)
+    if AUTH_TOKEN_PATH and AUTH_TOKEN_PATH.exists():
+        creds = Credentials.from_authorized_user_file(AUTH_TOKEN_PATH, SCOPES)
 
     # 2. If no valid token, let's log in
     if not creds or not creds.valid:
@@ -33,13 +30,13 @@ def authenticate_gmail():
         else:
             # This opens the browser
             flow = InstalledAppFlow.from_client_secrets_file(
-                str(AUTH_CREDENTIALS_FILE), SCOPES)
+                str(AUTH_CREDENTIALS_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
         
         # 3. Save the token for next time
-        with open(str(token_path), 'w') as token:
+        with open(str(AUTH_TOKEN_PATH), 'w') as token:
             token.write(creds.to_json())
-            print(f"Success! {TOKEN_FILE_NAME} created.")
+            print(f"Success! {AUTH_TOKEN_PATH} created.")
 
     return creds
 
