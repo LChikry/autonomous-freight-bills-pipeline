@@ -6,11 +6,9 @@
 
 In a professional setting (G-Suite / Google Workspace), we would use a Service Account. This is a special "robot" account that uses a key file to authenticate instantly with organization email via API, with zero human interaction.
 
-For a standard free Gmail account (@gmail.com), there is no way to get credentials purely via an API call without a human interaction to authenticate. For this project, we used this method. Also, since the program will read specifically from one targeted Gmail account, we will not use the `Sign in with Google` method for getting the authentication key. Therefore, we have left with two options:
+For a standard free Gmail account (@gmail.com), there is no way to get credentials purely via an API call without a human interaction to authenticate. For this project, we used this method. Also, since the program will read specifically from one targeted Gmail account, we will not use the `Sign in with Google` method for getting the authentication key. Therefore, we have left with one options: Getting the authentication token automatically using a script that prompt us to authenticate via the browser. This method is the one we used.
 
-1. Generate the authentication token manually using Google's developer tool and save it.
-
-2. Getting the authentication token automatically using a script that prompt us to authenticate via the browser. This method is the one we used.
+You can follow the below steps or the steps at the official documentation: [https://developers.google.com/workspace/gmail/api/quickstart/python](https://developers.google.com/workspace/gmail/api/quickstart/python)
 
 #### Here is how the second method will work
 
