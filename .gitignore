@@ -1,7 +1,4 @@
 .env
 docs/
-firestore_key.json
-gmail_token.json
-auth_token.json
-auth_credentials.json
 credentials/
+*.log
