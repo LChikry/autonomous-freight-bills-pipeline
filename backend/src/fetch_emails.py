@@ -1,11 +1,13 @@
 import base64
 import logging
+import datetime
 
 from auth import get_gmail_service
+from backend.src.types.my_types import Email, FetchedAttachment
 
 logger = logging.getLogger(__name__)
 
-def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "INBOX") -> list[dict]:
+def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "INBOX") -> list[Email]:
     logger.info(f"Fetching latest {limit} emails in {label_id}")
     
     service = get_gmail_service()
@@ -15,7 +17,7 @@ def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "I
     messages_ids: list[dict] = results.get("messages", [])
     if not messages_ids:
         logger.debug("No emails to fetch")
-        return messages_ids
+        return []
     
     logger.debug(f"{len(messages_ids)} emails found; starting individual fetching")
     result = []
@@ -28,40 +30,63 @@ def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "I
         logger.debug(email["payload"]["parts"][0].keys())
         logger.debug(email["payload"]["body"])
 
-        if "multipart" not in email["payload"]["mimeType"]:
+        if "multipart" not in email["payload"]["mimeType"].lower():
             logger.debug(f"Skipping email_id={msg_id["id"]} because it has no attachments")
             continue
         
-        latest_body_text, attachments = parse_payload(service, email["payload"], user_id, msg_id["id"])
+        raw_text_excerpt, latest_body_text, attachments = parse_payload(service, email["payload"], user_id, msg_id["id"])
         
         if not attachments:
             logger.debug(f"Skipping email_id={msg_id["id"]} because it has no attachments")
             continue
 
-        if not latest_body_text:
+        if not latest_body_text or not raw_text_excerpt:
             logger.warning(f"Skipping email_id={msg_id} because it has no body text")
             continue
 
-        email_data = {
-            "id": email["id"],
-            "internalDate_ms": email["internalDate"],
-            "latest_body_text": latest_body_text,
-            "attachments": attachments
-        }
+        subject, source_from = parse_headers(email['payload']['headers'])
+        
+        print('\n\n', datetime.datetime.fromtimestamp(float(email["internalDate"]) /1000.0, tz=datetime.timezone.utc).isoformat())
+        
+        email_data = Email(
+            id=email["id"],
+            subject=subject,
+            source_from=source_from,
+            received_at=datetime.datetime.fromtimestamp(float(email["internalDate"]) /1000.0, tz=datetime.timezone.utc).isoformat(),
+            latest_body_text=latest_body_text,
+            raw_text_excerpt=raw_text_excerpt,
+            attachments=attachments,
+        )
         result.append(email_data)
     
     return result
 
 
-def parse_payload(service, payload, user_id, msg_id) -> tuple[str | None, list | None]:
+def parse_headers(headers: dict):
+    subject, source_from = "", ""
+    for h in headers:
+        name = h['name']
+        
+        if name == 'Subject':
+            subject = h['value']
+        elif name == 'From':
+            source_from = h['value']
+        
+        if subject and source_from: break
+    
+    if 'Fwd: ' in subject: subject = subject[5:]
+    return (subject, source_from)
+
+
+def parse_payload(service, payload, user_id, msg_id) -> tuple[str | None, str | None, list[FetchedAttachment] | None]:
     logger.debug(f"Parsing email_id={msg_id} body for latest body text")
-    latest_body_text = extract_latest_body_text(payload)
-    attachments = extract_attachments(payload, service, user_id, msg_id)
-    return (latest_body_text, attachments)
-
-
-def extract_latest_body_text(payload):
     body_text = get_email_body(payload)
+    latest_body_text = extract_latest_body_text(body_text)
+    attachments = extract_attachments(payload, service, user_id, msg_id)
+    return (body_text, latest_body_text, attachments)
+
+
+def extract_latest_body_text(body_text) -> str | None:
     if not body_text: return None
     
     separator = "---------- Forwarded message ---------"
@@ -82,7 +107,7 @@ def get_email_body(payload) -> str | None:
         if text: return text
 
 
-def extract_attachments(payload, service, user_id, msg_id) -> list[dict]:
+def extract_attachments(payload, service, user_id, msg_id) -> list[FetchedAttachment]:
     pdfs = []
     
     parts = [payload]
@@ -95,7 +120,7 @@ def extract_attachments(payload, service, user_id, msg_id) -> list[dict]:
         if not part.get('filename') or not part.get('body', {}).get('attachmentId'):
             continue
         
-        if not part["mimeType"] != "application/pdf":
+        if part["mimeType"].lower() != "application/pdf":
             logger.debug(f"A non PDF attachment is skipped in email_id={msg_id}")
             continue
 
@@ -113,12 +138,12 @@ def extract_attachments(payload, service, user_id, msg_id) -> list[dict]:
         
         file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
         
-        pdfs.append({
-            "id": att_id,
-            "filename": filename,
-            "email_id": msg_id,
-            "content": file_data,
-        })
+        pdfs.append(FetchedAttachment(
+            attachment_id=att_id,
+            email_id=msg_id,
+            filename=filename,
+            content=file_data
+        ))
 
     return pdfs
 
