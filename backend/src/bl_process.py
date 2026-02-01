@@ -1,0 +1,96 @@
+import logging
+
+from db import is_bl_exist, get_dedupe_key_from_bl_number, get_dedupe_key_from_page_range
+from backend.src.types.my_types import BLDocument, BaseEmail, Email
+from types.bl_schema import BillOfLading, DbBL
+
+logger = logging.getLogger(__name__)
+
+def check_duplicates(bls: list[BLDocument]):
+    if not bls: return []
+    
+    num_all_bls = len(bls)
+
+    # Checking against co-fetched Documents
+    seen_bls1 = dict()
+    seen_bls2 = dict()
+    for b in bls:
+        dedupe_key1 = get_dedupe_key_from_bl_number(b.bl_number, b.email_id)
+        dedupe_key2 = get_dedupe_key_from_page_range(b.email_id, b.attachment_id, b.page_range)
+
+        if dedupe_key1 in seen_bls1 or dedupe_key2 in seen_bls2: continue
+        seen_bls1[dedupe_key1] = b
+        seen_bls2[dedupe_key2] = b
+    
+    bls = list(seen_bls1.values())
+    bls.extend((list(seen_bls2.values())))
+    
+    # Checking against the DB
+    bls = list(filter(lambda b: not is_bl_exist(b), bls))
+    
+    if num_all_bls - len(bls) != 0:
+        logger.info(f"We have skipped {num_all_bls-len(bls)} BLs because they are duplicates")
+        return bls
+    else: return []
+
+
+def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: dict[str, Email]):
+    db_bls: list[DbBL] = []
+    
+    for i in range(len(pbls)):
+        b, p = bls[i], pbls[i]
+        e = emails[b.email_id]
+        
+        db_bls.append(DbBL(
+            dedupe_key=get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, e.id),
+            doc_type=p.doc_type or b.bl_number,
+            bl_number=p.bl_number or b.bl_number,
+            booking_number=p.booking_number,
+            created_at=p.created_at or b.created_at or "",
+            
+            shipper_name=p.shipper_name,
+            shipper_address=p.shipper_address,
+            consignee_name=p.consignee_name,
+            consignee_address=p.consignee_address,
+            notify_party_name=p.notify_party_name,
+            carrier_name=p.carrier_name,
+            
+            vessel_name=p.vessel_name,
+            voyage_number=p.voyage_number,
+            port_of_loading=p.port_of_loading,
+            port_of_discharge=p.port_of_discharge,
+            place_of_receipt=p.place_of_receipt,
+            place_of_delivery=p.place_of_delivery,
+            
+            etd=p.etd,
+            eta=p.eta,
+            issue_date=p.issue_date,
+            
+            containers=p.containers,
+            goods_summary=p.goods_summary,
+            
+            freight_terms=p.freight_terms,
+            
+            email_status=p.email_status,
+            attachment=BLDocument(
+                attachment_id=b.attachment_id,
+                email_id=b.email_id,
+                filename=b.filename,
+                content=b.content,
+                page_range=b.page_range,
+                bl_number=b.bl_number or p.created_at,
+                created_at=b.created_at or p.created_at,
+                doc_type=b.doc_type or p.doc_type
+            ),
+            email=BaseEmail(
+                id=e.id,
+                subject=e.subject,
+                received_at=e.received_at,
+                raw_text_excerpt=e.raw_text_excerpt,
+                latest_body_text=e.latest_body_text,
+                source_from=e.source_from,
+                email_status=p.email_status
+            )
+        ))
+    
+    return db_bls
