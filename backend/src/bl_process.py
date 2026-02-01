@@ -1,7 +1,7 @@
 import logging
 
 from db import is_bl_exist, get_dedupe_key_from_bl_number, get_dedupe_key_from_page_range
-from backend.src.types.my_types import BLDocument, BaseEmail, Email
+from types.app_types import BLDocument, BaseEmail, Email
 from types.bl_schema import BillOfLading, DbBL
 
 logger = logging.getLogger(__name__)

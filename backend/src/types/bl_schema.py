@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import date
 
-from backend.src.types.my_types import BLDocument, BaseEmail
+from types.app_types import BLDocument, BaseEmail
 
 class Container(BaseModel):
     number: str = Field(..., description="The container ID (e.g., XEBL5869714)")

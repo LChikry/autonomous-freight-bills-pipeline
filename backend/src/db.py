@@ -7,7 +7,7 @@ import traceback
 from fastapi import HTTPException
 
 from auth import get_credentials_filepath
-from backend.src.types.my_types import BLDocument
+from types.app_types import BLDocument
 from types.bl_schema import DbBL
 
 logger = logging.getLogger(__name__)

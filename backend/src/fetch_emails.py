@@ -3,7 +3,7 @@ import logging
 import datetime
 
 from auth import get_gmail_service
-from backend.src.types.my_types import Email, FetchedAttachment
+from types.app_types import Email, FetchedAttachment
 
 logger = logging.getLogger(__name__)
 

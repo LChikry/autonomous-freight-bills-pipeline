@@ -5,7 +5,7 @@ import pikepdf
 from datetime import datetime
 from typing import Literal, cast
 
-from backend.src.types.my_types import AttachmentPages, BLDocument, FetchedAttachment
+from types.app_types import AttachmentPages, BLDocument, FetchedAttachment
 
 def split_grouped_bills(attachment: FetchedAttachment) -> list[BLDocument]:
     total_pages, invoice_ranges = get_invoice_ranges_in_attachments(attachment.content)
