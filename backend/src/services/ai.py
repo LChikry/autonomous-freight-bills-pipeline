@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os, logging
 
 from shared_types.bl_schema import BatchExtractionResult, BillOfLading
-from auth import get_credentials_filepath
+from services.auth_gmail import get_credentials_filepath
 
 logger = logging.getLogger(__name__)
 

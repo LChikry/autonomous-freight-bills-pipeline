@@ -5,7 +5,7 @@ import traceback
 from typing import Literal
 from fastapi import HTTPException
 
-from auth import get_credentials_filepath
+from services.auth_gmail import get_credentials_filepath
 from shared_types.app_types import BLDocument
 from shared_types.bl_schema import DbBL, DbRetrievedBL
 

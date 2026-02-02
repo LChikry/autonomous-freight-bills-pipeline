@@ -1,6 +1,6 @@
 import logging
 
-import db
+import services.db as db
 from shared_types.app_types import BLDocument, BaseEmail, Email
 from shared_types.bl_schema import BillOfLading, DbBL
 

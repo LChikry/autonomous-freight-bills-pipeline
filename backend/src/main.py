@@ -2,11 +2,11 @@ from fastapi import FastAPI, Request, Depends
 import time
 import logging
 
-from fetch_emails import fetch_latest_emails
+from services.gmail import fetch_latest_emails
 from attachments_handler import split_grouped_bills
-from shared_types.app_types import BLDocument, BaseEmail
-import db
-from doc_extraction import process_shipping_documents
+from shared_types.app_types import BLDocument
+import services.db as db
+from services.ai import process_shipping_documents
 from bl_process import check_duplicates, create_bls_for_db
 from shared_types.api_types import PostProcessResponse, GetHblListRequest, GetMblListRequest, GetHblListResponse, GetMblListResponse
 
@@ -50,7 +50,7 @@ def status_check():
 
 @app.post("/process", response_model=PostProcessResponse)
 async def process():
-    emails = fetch_latest_emails(limit=1)
+    emails = fetch_latest_emails()
     bls: list[BLDocument] = []
     original_att_count = 0
     

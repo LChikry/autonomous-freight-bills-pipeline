@@ -2,7 +2,7 @@ import base64
 import logging
 import datetime
 
-from auth import get_gmail_service
+from services.auth_gmail import get_gmail_service
 from shared_types.app_types import Email, FetchedAttachment
 
 logger = logging.getLogger(__name__)
