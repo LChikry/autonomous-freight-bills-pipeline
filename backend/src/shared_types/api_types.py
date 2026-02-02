@@ -14,7 +14,7 @@ class PostProcessResponse(BaseModel):
 
 # List
 class GetBlListRequestBase(BaseModel):
-    limit: int = Field(20, ge=1, le=100)
+    limit: int = Field(10, ge=1, le=100)
     cursor: str | None = Field(default=None)
 
 class GetHblListRequest(GetBlListRequestBase):

@@ -2,3 +2,4 @@
 docs/
 credentials/
 *.log
+.DS_Store
