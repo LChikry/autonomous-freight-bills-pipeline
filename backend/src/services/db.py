@@ -19,13 +19,13 @@ if not db or not cred_file:
     raise HTTPException(status_code=500, detail="Database not initialized")
 
 
-def get_dedupe_key_from_bl_number(bl_number: str, email_id: str):
-    raw_string = f"{bl_number}_{email_id}"
+def get_dedupe_key_from_bl_number(bl_number: str, file_name: str):
+    raw_string = f"{bl_number}_{file_name}"
     return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
 
 
-def get_dedupe_key_from_page_range(email_id: str, attachment_id: str, page_range: tuple[int, int]):
-    raw_string = f"{email_id}_{attachment_id}_{page_range}"
+def get_dedupe_key_from_page_range(email_id: str, filename: str, page_range: tuple[int, int]):
+    raw_string = f"{email_id}_{filename}_{page_range}"
     return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
 
 
@@ -33,7 +33,7 @@ async def is_bl_exist(attachment: BLDocument) -> bool:
     async def db_query(collection_name: str):
         dedupe_key = get_dedupe_key_from_bl_number(
             attachment.bl_number, 
-            attachment.email_id
+            attachment.filename
         )
         return await db.collection(collection_name).where(filter=FieldFilter("dedupe_key", "==", dedupe_key)).limit(1).get()
     

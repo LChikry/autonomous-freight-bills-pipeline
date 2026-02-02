@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
 import time
 import logging
 
@@ -21,6 +22,19 @@ logging.basicConfig(
 )
 
 app = FastAPI()
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 logger = logging.getLogger(__name__)
 logger.info("\n\nNEW INSTANCE--------------------------------------------")
 
