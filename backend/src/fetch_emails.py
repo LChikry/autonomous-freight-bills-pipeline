@@ -3,12 +3,12 @@ import logging
 import datetime
 
 from auth import get_gmail_service
-from types.app_types import Email, FetchedAttachment
+from shared_types.app_types import Email, FetchedAttachment
 
 logger = logging.getLogger(__name__)
 
 def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "INBOX") -> list[Email]:
-    logger.info(f"Fetching latest {limit} emails in {label_id}")
+    logger.info(f"Fetching latest {limit} emails in {label_id}...")
     
     service = get_gmail_service()
     results: dict = (
@@ -16,7 +16,7 @@ def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "I
         )
     messages_ids: list[dict] = results.get("messages", [])
     if not messages_ids:
-        logger.debug("No emails to fetch")
+        logger.info("No emails found to fetch")
         return []
     
     logger.debug(f"{len(messages_ids)} emails found; starting individual fetching")
@@ -26,9 +26,6 @@ def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "I
         email: dict = (
             service.users().messages().get(userId="me", id=msg_id["id"], format="full").execute()
         )
-        
-        logger.debug(email["payload"]["parts"][0].keys())
-        logger.debug(email["payload"]["body"])
 
         if "multipart" not in email["payload"]["mimeType"].lower():
             logger.debug(f"Skipping email_id={msg_id["id"]} because it has no attachments")
@@ -59,6 +56,7 @@ def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "I
         )
         result.append(email_data)
     
+    logger.info(f"{len(result)} emails fetched for processing, {len(messages_ids)} emails skipped")
     return result
 
 
@@ -83,6 +81,8 @@ def parse_payload(service, payload, user_id, msg_id) -> tuple[str | None, str | 
     body_text = get_email_body(payload)
     latest_body_text = extract_latest_body_text(body_text)
     attachments = extract_attachments(payload, service, user_id, msg_id)
+    
+    logger.info(f"{len(attachments)} attachments (multi and non-multi) are detected for processing")
     return (body_text, latest_body_text, attachments)
 
 

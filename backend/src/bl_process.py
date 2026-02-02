@@ -1,37 +1,40 @@
 import logging
 
-from db import is_bl_exist, get_dedupe_key_from_bl_number, get_dedupe_key_from_page_range
-from types.app_types import BLDocument, BaseEmail, Email
-from types.bl_schema import BillOfLading, DbBL
+import db
+from shared_types.app_types import BLDocument, BaseEmail, Email
+from shared_types.bl_schema import BillOfLading, DbBL
 
 logger = logging.getLogger(__name__)
 
-def check_duplicates(bls: list[BLDocument]):
+async def check_duplicates(bls: list[BLDocument]):
     if not bls: return []
-    
+
     num_all_bls = len(bls)
+    # 1. Dedupe against co-fetched Documents
+    seen_keys1 = set()
+    seen_keys2 = set()
+    unique_in_batch = []
 
-    # Checking against co-fetched Documents
-    seen_bls1 = dict()
-    seen_bls2 = dict()
     for b in bls:
-        dedupe_key1 = get_dedupe_key_from_bl_number(b.bl_number, b.email_id)
-        dedupe_key2 = get_dedupe_key_from_page_range(b.email_id, b.attachment_id, b.page_range)
+        dedupe_key1 = db.get_dedupe_key_from_bl_number(b.bl_number, b.email_id)
+        dedupe_key2 = db.get_dedupe_key_from_page_range(b.email_id, b.attachment_id, b.page_range)
 
-        if dedupe_key1 in seen_bls1 or dedupe_key2 in seen_bls2: continue
-        seen_bls1[dedupe_key1] = b
-        seen_bls2[dedupe_key2] = b
+        if dedupe_key1 in seen_keys1 or dedupe_key2 in seen_keys2: continue
+        seen_keys1.add(dedupe_key1)
+        seen_keys2.add(dedupe_key2)
+        unique_in_batch.append(b)
     
-    bls = list(seen_bls1.values())
-    bls.extend((list(seen_bls2.values())))
+    # 2. Checking against the DB
+    final_unique_bls = []
+    for b in unique_in_batch:
+        if await db.is_bl_exist(b): continue
+        final_unique_bls.append(b)
     
-    # Checking against the DB
-    bls = list(filter(lambda b: not is_bl_exist(b), bls))
+    num_diff_bls = num_all_bls - len(final_unique_bls)
+    if len(final_unique_bls) < num_all_bls:
+        logger.info(f"We have skipped {num_diff_bls} BLs because they are duplicates")
     
-    if num_all_bls - len(bls) != 0:
-        logger.info(f"We have skipped {num_all_bls-len(bls)} BLs because they are duplicates")
-        return bls
-    else: return []
+    return final_unique_bls
 
 
 def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: dict[str, Email]):
@@ -42,11 +45,11 @@ def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: d
         e = emails[b.email_id]
         
         db_bls.append(DbBL(
-            dedupe_key=get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, e.id),
+            dedupe_key=db.get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, e.id),
             doc_type=p.doc_type or b.bl_number,
             bl_number=p.bl_number or b.bl_number,
             booking_number=p.booking_number,
-            created_at=p.created_at or b.created_at or "",
+            generated_at=p.generated_at or b.generated_at or "",
             
             shipper_name=p.shipper_name,
             shipper_address=p.shipper_address,
@@ -78,8 +81,8 @@ def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: d
                 filename=b.filename,
                 content=b.content,
                 page_range=b.page_range,
-                bl_number=b.bl_number or p.created_at,
-                created_at=b.created_at or p.created_at,
+                bl_number=b.bl_number or p.bl_number,
+                generated_at=b.generated_at or p.generated_at,
                 doc_type=b.doc_type or p.doc_type
             ),
             email=BaseEmail(

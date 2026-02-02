@@ -2,14 +2,20 @@ import instructor
 import base64
 from anthropic import Anthropic
 from dotenv import load_dotenv
-import os
+import os, logging
 
-from types.bl_schema import BatchExtractionResult, BillOfLading
+from shared_types.bl_schema import BatchExtractionResult, BillOfLading
 from auth import get_credentials_filepath
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(dotenv_path=get_credentials_filepath("../.env"))
 
 def process_shipping_documents(file_data_list: list[dict]) -> list[BillOfLading]:
+    MODEL_NAME = "claude-sonnet-4-5-20250929"
+    
+    logger.info(f"Sending {len(file_data_list)} BL documents for extraction using {MODEL_NAME}")
+    
     client = instructor.from_anthropic(Anthropic(
         api_key= os.getenv("ANTHROPIC_API_KEY")
     ))
@@ -56,11 +62,9 @@ def process_shipping_documents(file_data_list: list[dict]) -> list[BillOfLading]
         )
     })
 
-    print(f"Sending {len(file_data_list)} documents to Claude...")
-
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250929", 
+            model=MODEL_NAME, 
             max_tokens=4096,
             messages=[
                 {

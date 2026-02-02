@@ -1,15 +1,16 @@
-import io
-import re
+import io, re, logging
 import pdfplumber
 import pikepdf
 from datetime import datetime
 from typing import Literal, cast
 
-from types.app_types import AttachmentPages, BLDocument, FetchedAttachment
+from shared_types.app_types import AttachmentPages, BLDocument, FetchedAttachment
+
+logger = logging.getLogger(__name__)
 
 def split_grouped_bills(attachment: FetchedAttachment) -> list[BLDocument]:
     total_pages, invoice_ranges = get_invoice_ranges_in_attachments(attachment.content)
-    bills = split_mega_attachments(attachment.content, total_pages, invoice_ranges)
+    bills = split_mega_attachments(attachment.attachment_id, attachment.content, total_pages, invoice_ranges)
 
     bls = []
     for b in bills:
@@ -21,7 +22,7 @@ def split_grouped_bills(attachment: FetchedAttachment) -> list[BLDocument]:
             page_range=b.page_range,
             bl_number=b.bl_number,
             doc_type=cast(Literal["hbl", "mbl"], b.bl_number.split("-")[0].lower().strip()),
-            created_at=b.created_at
+            generated_at=b.generated_at
         ))
     
     return bls
@@ -80,7 +81,7 @@ def get_invoice_ranges_in_attachments(file_content_bytes):
     return total_pages, invoice_ranges
 
 
-def split_mega_attachments(file_content_bytes: bytes, total_pages: int, invoice_ranges: list[tuple[str, str, int, int]]) -> list[AttachmentPages]:
+def split_mega_attachments(attachment_id, file_content_bytes: bytes, total_pages: int, invoice_ranges: list[tuple[str, str, int, int]]) -> list[AttachmentPages]:
     # Skip splitting if df contains only one invoice
     if len(invoice_ranges) == 1:
         ref, date, start, end = invoice_ranges[0]
@@ -89,9 +90,10 @@ def split_mega_attachments(file_content_bytes: bytes, total_pages: int, invoice_
                     bl_number=ref,
                     content=file_content_bytes,
                     page_range=(start, end),
-                    created_at=datetime.strptime(date, "%d-%b-%Y %H:%M").isoformat()
+                    generated_at=datetime.strptime(date, "%d-%b-%Y %H:%M").isoformat()
                 )]
 
+    logger.debug(f"A multi-BL attachment found with attachment_id={attachment_id}, starting the separation...")
     split_pdfs = []
     with pikepdf.open(io.BytesIO(file_content_bytes)) as pdf:
         for ref, date, start, end in invoice_ranges:
@@ -105,7 +107,7 @@ def split_mega_attachments(file_content_bytes: bytes, total_pages: int, invoice_
             split_pdfs.append(AttachmentPages(bl_number=ref,
                 content=output_buffer.getvalue(),
                 page_range=(start, end),
-                created_at=datetime.strptime(date, "%d-%b-%Y %H:%M").isoformat() if date != "UNKNOWN_DATE" else None
+                generated_at=datetime.strptime(date, "%d-%b-%Y %H:%M").isoformat() if date != "UNKNOWN_DATE" else None
             ))
             
     return split_pdfs
