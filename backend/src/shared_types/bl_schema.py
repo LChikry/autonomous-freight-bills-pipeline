@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
-from datetime import date
+from typing import List, Optional, Literal, Any
+from datetime import date, datetime, timezone
 
-from types.app_types import BLDocument, BaseEmail
+from shared_types.app_types import BLDocument, BaseEmail, BaseAttachment
 
 class Container(BaseModel):
     number: str = Field(..., description="The container ID (e.g., XEBL5869714)")
@@ -26,7 +26,7 @@ class BillOfLading(BaseModel):
     doc_type: Literal["hbl", "mbl"] = Field(..., description="Classify based on document title: 'hbl' for House Bill of Lading, 'mbl' for Master Bill of Lading")
     bl_number: str = Field(..., description="The main B/L number (e.g., MBL-3135534, HBL-5437923)")
     booking_number: Optional[str] = Field(None, description="Booking Reference number (e.g., BK37053918)")
-    created_at: str = Field(..., description="The date the billing is crated/generated at in ISO8601 format")
+    generated_at: str = Field(..., description="The date the billing is generated at in ISO8601 format")
 
     # --- Entities ---
     shipper_name: str = Field(..., description="Name of the shipper")
@@ -69,3 +69,22 @@ class DbBL(BillOfLading):
     dedupe_key: str
     email: BaseEmail
     attachment: BLDocument
+    created_at: Optional[Any] = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DbRetrievedAttachment(BaseModel):
+    doc_type: Literal["hbl", "mbl"] = Field(..., description="Bill of Lading type: either mbl (master) or hbl (House)")
+    
+    page_range: tuple[int, int]
+    bl_number: str = Field(..., description="Bill of Lading (BL) number is unique reference number. Examples: MBL-2677407 or HBL-5437923")
+    generated_at: str | None
+
+    attachment_id: str = Field(..., min_length=1, description="Attachment Id provided by Gmail API")
+    email_id: str = Field(..., min_length=1, description="Email Id this attachment belongs to. It is provided by Gmail API")
+    filename: str
+
+class DbRetrievedBL(BillOfLading):
+    dedupe_key: str
+    email: BaseEmail
+    doc_id: str = Field(..., description="The Firestore Generated ID for the document in the database")
+    created_at: Optional[Any] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    attachment: DbRetrievedAttachment

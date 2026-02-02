@@ -28,7 +28,7 @@ class AttachmentPages(BaseModel):
     content: bytes
     page_range: tuple[int, int]
     bl_number: str = Field(..., description="Bill of Lading (BL) number is unique reference number. Examples: MBL-2677407 or HBL-5437923")
-    created_at: str | None
+    generated_at: str | None
 
 class BLDocument(BaseAttachment, AttachmentPages):
     doc_type: Literal["hbl", "mbl"] = Field(..., description="Bill of Lading type: either mbl (master) or hbl (House)")
