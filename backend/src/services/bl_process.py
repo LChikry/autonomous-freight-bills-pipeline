@@ -1,6 +1,6 @@
 import logging
 
-import services.db as db
+import services.repository as repository
 from shared_types.app_types import BLDocument, BaseEmail, Email
 from shared_types.bl_schema import BillOfLading, DbBL
 
@@ -16,8 +16,8 @@ async def check_duplicates(bls: list[BLDocument]):
     unique_in_batch = []
 
     for b in bls:
-        dedupe_key1 = db.get_dedupe_key_from_bl_number(b.bl_number, b.filename)
-        dedupe_key2 = db.get_dedupe_key_from_page_range(b.email_id, b.filename, b.page_range)
+        dedupe_key1 = repository.get_dedupe_key_from_bl_number(b.bl_number, b.filename)
+        dedupe_key2 = repository.get_dedupe_key_from_page_range(b.email_id, b.filename, b.page_range)
 
         if dedupe_key1 in seen_keys1 or dedupe_key2 in seen_keys2: continue
         seen_keys1.add(dedupe_key1)
@@ -27,7 +27,7 @@ async def check_duplicates(bls: list[BLDocument]):
     # 2. Checking against the DB
     final_unique_bls = []
     for b in unique_in_batch:
-        if await db.is_bl_exist(b): continue
+        if await repository.is_bl_exist(b): continue
         final_unique_bls.append(b)
     
     num_diff_bls = num_all_bls - len(final_unique_bls)
@@ -45,7 +45,7 @@ def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: d
         e = emails[b.email_id]
         
         db_bls.append(DbBL(
-            dedupe_key=db.get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, b.filename),
+            dedupe_key=repository.get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, b.filename),
             doc_type=p.doc_type or b.bl_number,
             bl_number=p.bl_number or b.bl_number,
             booking_number=p.booking_number,

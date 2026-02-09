@@ -3,13 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 import logging
 
-from utils.config import config
+from config import config
 from api.v1 import ops, documents
 
 logger = logging.getLogger(__name__)
 logger.info("\n\n------------------------------ NEW INSTANCE ------------------------------")
 
-app = FastAPI(title=config.app_name)
+app = FastAPI(
+    title=config.app_name,
+    docs_url=None if config.is_production else "/docs",
+    redoc_url=None if config.is_production else "/redoc",
+    openapi_url=None if config.is_production else "/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,7 +42,7 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/")
 def status_check():
-    return {"status": "ok"}
+    return {"is_ok": "ok"}
 
 
 app.include_router(ops.router)

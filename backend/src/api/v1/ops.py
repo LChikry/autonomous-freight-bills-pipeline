@@ -1,22 +1,31 @@
 from fastapi import APIRouter
+from pydantic import BaseModel
+
 import logging
 
-from core.attachments_handler import split_grouped_bills
+from services.attachments_handler import split_grouped_bills
 from services.gmail import fetch_latest_emails
 from services.ai import process_shipping_documents
-from core.bl_process import check_duplicates, create_bls_for_db
+from services.bl_process import check_duplicates, create_bls_for_db
 from shared_types.app_types import BLDocument
 from services.ai import process_shipping_documents
-from core.bl_process import check_duplicates, create_bls_for_db
-from shared_types.api_types import PostProcessResponse
-import services.db as db
+from services.bl_process import check_duplicates, create_bls_for_db
+import services.repository as repository
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/ops", tags=["Operations"])
 
 
-@router.post("/process", response_model=PostProcessResponse)
+class TriggerProcessResponse(BaseModel):
+    emails_processed_count: int
+    attachments_processed_count: int
+    bl_processed_count: int
+    docs_created_count: int
+    skipped_duplicated_docs_count: int
+
+
+@router.post("/process", response_model=TriggerProcessResponse)
 async def trigger_processing():
     emails = fetch_latest_emails()
     bls: list[BLDocument] = []
@@ -32,7 +41,7 @@ async def trigger_processing():
     original_docs_count = len(bls)
     bls = await check_duplicates(bls)
     logger.info(f"Number of unique BL documents found are {len(bls)}")
-    if not bls: return PostProcessResponse(
+    if not bls: return TriggerProcessResponse(
             emails_processed_count=len(emails),
             attachments_processed_count=original_att_count,
             bl_processed_count=original_docs_count,
@@ -47,9 +56,9 @@ async def trigger_processing():
     
     logger.info(f"We have Extracted {len(pbls)} BLs")
     db_bls = create_bls_for_db(pbls, bls, emails)
-    await db.save_bls(db_bls)
+    await repository.save_bls(db_bls)
 
-    return PostProcessResponse(
+    return TriggerProcessResponse(
             emails_processed_count=len(emails),
             attachments_processed_count=original_att_count,
             bl_processed_count=original_docs_count,
