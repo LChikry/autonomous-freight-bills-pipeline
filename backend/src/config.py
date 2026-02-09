@@ -1,64 +1,54 @@
+
 import logging
-import os
 from pathlib import Path
-from attrs import define, field, validators
-from dotenv import load_dotenv
+from typing import Literal
+from pydantic import Field, computed_field, FilePath
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-BASE_DIR = Path(__file__).resolve().parent.parent # backend
-load_dotenv(BASE_DIR / ".env")
 
-def path_must_exist(instance, attribute, value):
-    """Custom validator to check if a file path exists."""
-    if not value.exists():
-        raise FileNotFoundError(
-            f"Missing required configuration file for '{attribute.name}': {value}"
-        )
+BASE_DIR = Path(__file__).resolve().parent.parent 
 
-@define
-class Config:
-    app_name: str
-    cors_origins: list[str]
-    logging_level: int = field(default=logging.INFO)
-
-    gmail_oauth_token_path: Path = field(
-        default=BASE_DIR / "credentials" / "gmail_oauth_token.json",
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        env_ignore_empty=True,
+        extra="ignore",
     )
+
+    app_name: str = "BofL Analyzer"
+    log_filepath: Path = Field(default=BASE_DIR / "app.log")
+    cors_origins: list[str] = []
+    environment: Literal["development", "production"] = "development"
     
-    gmail_oauth_client_path: Path = field(
-        default=BASE_DIR / "credentials" / "gmail_oauth_client.json",
-        validator=path_must_exist
-    )
+    anthropic_api_key: str  = ""
+    gmail_token_path: Path = Field(default=BASE_DIR / "credentials/gmail_token.json")
+    gmail_client_path: FilePath = Field(default=BASE_DIR / "credentials/gmail_client.json")
+    firestore_client_path: FilePath = Field(default=BASE_DIR / "credentials/firestore_client.json")
     
-    firestore_client_path: Path = field(
-        default=BASE_DIR / "credentials" / "firestore_service_account.json",
-        validator=path_must_exist
-    )
-
-    anthropic_api_key: str = field(
-        factory=lambda: os.environ["ANTHROPIC_API_KEY"],
-    )
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+    
+    @property
+    def logging_level(self) -> int:
+        return logging.INFO if self.is_production else logging.DEBUG
 
 try:
-    config = Config(
-        app_name="BofL Analyzer",
-        cors_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ],
-    )
-    
+    config = Settings()
+
     logging.basicConfig(
         level=config.logging_level,
         format="%(asctime)s, %(name)-33s, %(levelname)-5s, %(message)s",
         datefmt="%d-%b-%y %H:%M:%S",
         handlers=[
-            logging.FileHandler("app.log"),
-            logging.StreamHandler()
+            logging.FileHandler(config.log_filepath),
+            logging.StreamHandler(),
         ]
     )
-    
-    logging.info(f"Configuration loaded and set. App: {config.app_name}")
 
-except (ValueError, FileNotFoundError, TypeError, KeyError) as e:
-    logging.error(f"Error in Configuration..")
+    logging.info(f"Configuration loaded. App: {config.app_name}")
+
+except Exception as e:
+    print("-----------------CRITICAL CONFIGURATION ERROR:-----------------")
+    print(e)
     exit(1)

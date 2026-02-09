@@ -2,14 +2,12 @@ import instructor
 import base64
 from anthropic import Anthropic
 from dotenv import load_dotenv
-import os, logging
+import logging
 
 from shared_types.bl_schema import BatchExtractionResult, BillOfLading
-from services.auth_gmail import get_credentials_filepath
+from config import config
 
 logger = logging.getLogger(__name__)
-
-load_dotenv(dotenv_path=get_credentials_filepath("../.env"))
 
 def process_shipping_documents(file_data_list: list[dict]) -> list[BillOfLading]:
     MODEL_NAME = "claude-sonnet-4-5-20250929"
@@ -17,7 +15,7 @@ def process_shipping_documents(file_data_list: list[dict]) -> list[BillOfLading]
     logger.info(f"Sending {len(file_data_list)} BL documents for extraction using {MODEL_NAME}")
     
     client = instructor.from_anthropic(Anthropic(
-        api_key= os.getenv("ANTHROPIC_API_KEY")
+        api_key=config.anthropic_api_key
     ))
 
     # Prepare the message content for the batch
