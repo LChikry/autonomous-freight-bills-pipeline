@@ -12,7 +12,7 @@ from shared_types.bl_schema import DbBL, DbRetrievedBL
 
 logger = logging.getLogger(__name__)
 
-cred_file = str(get_credentials_filepath("firestore-service-account.json"))
+cred_file = str(get_credentials_filepath("firestore_client.json"))
 db = AsyncClient.from_service_account_json(cred_file)
 
 if not db or not cred_file:

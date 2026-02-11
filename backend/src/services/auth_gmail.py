@@ -12,8 +12,8 @@ def get_credentials_filepath(filename: str) -> Path | None:
     return None
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
-GMAIL_OAUTH_TOKEN = get_credentials_filepath("gmail_oauth_token.json")
-GMAIL_OAUTH_CLIENT = get_credentials_filepath("gmail_oauth_client.json")
+GMAIL_OAUTH_TOKEN = get_credentials_filepath("gmail_token.json")
+GMAIL_OAUTH_CLIENT = get_credentials_filepath("gmail_client.json")
 
 def authenticate_gmail():
     creds = None
