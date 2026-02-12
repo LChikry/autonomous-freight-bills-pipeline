@@ -11,3 +11,4 @@ pikepdf
 pdfplumber
 instructor
 anthropic
+loguru
