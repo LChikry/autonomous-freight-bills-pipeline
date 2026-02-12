@@ -55,7 +55,13 @@ def set_logger_intercept():
     loggers_name = ["uvicorn", "uvicorn.access", "uvicorn.error", "fastapi"]
     for logger_name in loggers_name:
         _logging_logger = logging.getLogger(logger_name)
-        _logging_logger.handlers = [InterceptHandler()]
+        
+        if logger_name == "uvicorn.access":
+            _logging_logger.handlers = []
+            _logging_logger.setLevel(logging.CRITICAL) # so record won't get even create
+        else:
+            _logging_logger.handlers = [InterceptHandler()]
+            
         _logging_logger.propagate = False
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
@@ -102,7 +108,7 @@ def setup_logger(config: Settings | None = None):
             colorize=True,
             level=config.logging_level if config else "TRACE",
             backtrace=True,
-            diagnose=True,
+            diagnose=False,
         )
 
 try:
