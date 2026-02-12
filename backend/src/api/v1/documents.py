@@ -13,7 +13,7 @@ class GetBlListRequestBase(BaseModel):
     
     @model_validator(mode="after")
     def check_mutual_exclusivity_of_cursors(self):
-        if (self.next_cursor is None) == (self.prev_cursor is None):
+        if self.next_cursor and self.prev_cursor:
             raise ValueError("Provide either next_cursor or prev_cursor but not both.")
         return self
 
