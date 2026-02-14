@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import logging
 
 from shared_types.bl_schema import BatchExtractionResult, BillOfLading
-from config import config
+from core import settings
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ def process_shipping_documents(file_data_list: list[dict]) -> list[BillOfLading]
     logger.info(f"Sending {len(file_data_list)} BL documents for extraction using {MODEL_NAME}")
     
     client = instructor.from_anthropic(Anthropic(
-        api_key=config.anthropic_api_key
+        api_key=settings.anthropic_api_key
     ))
 
     # Prepare the message content for the batch

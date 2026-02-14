@@ -5,13 +5,13 @@ import traceback
 from typing import Literal
 from fastapi import HTTPException
 
-from config import config
+from core import settings
 from shared_types.app_types import BLDocument
 from shared_types.bl_schema import DbBL, DbRetrievedBL
 
 
 logger = logging.getLogger(__name__)
-db_client = AsyncClient.from_service_account_json(config.firestore_client_path)
+db_client = AsyncClient.from_service_account_json(settings.firestore_client_path)
 
 if not db_client:
     raise HTTPException(status_code=500, detail="Database not initialized")
