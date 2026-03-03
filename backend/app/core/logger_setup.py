@@ -1,4 +1,4 @@
-import logging, sys, json, re
+import logging, sys, json
 from loguru import logger
 
 from .config import settings
@@ -18,6 +18,7 @@ def init_logger():
             enqueue=True,
             backtrace=True,
             diagnose=False,
+            colorize=False,
         )
         return
     
@@ -85,14 +86,15 @@ def _log_formatter(record):
 
 
 def _log_serializer(record):
-    extra = record["extra"]
+    extra = record["extra"].copy()
     
     log_entry = {
-        **extra,
+        "trace_id": extra.pop("trace_id", None),
+        "http": extra.pop("http", {}),
         "timestamp": record["time"].isoformat(),
         "log_level": record["level"].name,
         "message": record["message"],
-        "service": {
+        "app_info": {
             "name": settings.service_name,
             "version": settings.service_version,
             "env": settings.environment,
@@ -104,6 +106,30 @@ def _log_serializer(record):
         },
     }
     
+    # 2. Unflatten the dynamic contexts
+    active_path = extra.pop("_active_path", [])
+    nested_context = {}
+    for key, value in extra.items():
+        # If key has dots (created by our operation_context)
+        if "." in key:
+            parts = key.split(".")
+        # If it's an inline kwarg (logger.info(..., new_things="Hi"))
+        # Auto-nest it under the current active namespace!
+        elif active_path:
+            parts = active_path + [key]
+        # Fallback for random root kwargs added outside of a context
+        else:
+            parts = [key]
+            
+        # Build the nested tree structure dynamically
+        current_level = nested_context
+        for part in parts[:-1]:
+            current_level = current_level.setdefault(part, {})
+        current_level[parts[-1]] = value
+        
+    # 3. Merge the beautifully nested contexts into the final log entry
+    log_entry.update(nested_context)
+    
     if record["exception"]:
         log_entry["exception"] = {
             "type": record["exception"].type.__name__,
@@ -111,7 +137,7 @@ def _log_serializer(record):
         }
     
     serialized = json.dumps(log_entry)
-    return serialized.replace("{", "{{").replace("}", "}}") + "\n"
+    return serialized.replace("{", "{{").replace("}", "}}").replace("<", "\\<") + "\n"
 
 
 def _set_logger_intercept():
