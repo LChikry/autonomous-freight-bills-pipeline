@@ -1,5 +1,14 @@
-.env
 docs/
 credentials/
+__pycache__/
+build/
+dist/
+wheels/
+
+.env
 *.log
+*.py[oc]
+*.egg-info
+
+.venv
 .DS_Store

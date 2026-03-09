@@ -49,7 +49,9 @@ function App() {
 		setIsProcessing(true);
 		setProcessStats(null);
 		try {
-			const res = await fetch(`${API_BASE}/process`, { method: "POST" });
+			const res = await fetch(`${API_BASE}/ops/process`, {
+				method: "POST",
+			});
 			if (!res.ok) throw new Error("Processing failed");
 			const json = await res.json();
 
