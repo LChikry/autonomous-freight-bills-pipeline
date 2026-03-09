@@ -14,7 +14,7 @@ async def request_logger_middleware(request: Request, call_next):
     """
     start_time = time.perf_counter()
     
-    trace_id = request.headers.get("Trace-Id", str(ulid.ULID()))
+    trace_id = request.headers.get("X-Trace-Id", str(ulid.ULID()))
     http_context = {
         "method": request.method,
         "path": request.url.path,
@@ -27,7 +27,7 @@ async def request_logger_middleware(request: Request, call_next):
         try:
             response = await call_next(request)
         except Exception as exc:
-            logger.exception(f"Unhandled Error")
+            logger.exception(f"Unhandled Error", error=exc)
             
             response = JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -38,6 +38,6 @@ async def request_logger_middleware(request: Request, call_next):
         http_context["duration_ms"] = str(round((time.perf_counter() - start_time) * 1000, 2))
         
         logger.info("Request completed", http=http_context)
-        response.headers["Trace-Id"] = trace_id
-        response.headers["Response-Time-Ms"] = http_context["duration_ms"]
+        response.headers["X-Trace-Id"] = trace_id
+        response.headers["X-Response-Time-Ms"] = http_context["duration_ms"]
         return response

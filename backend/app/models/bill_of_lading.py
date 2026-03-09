@@ -1,8 +1,11 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Any
-from datetime import date, datetime, timezone
+from typing import Optional, Literal, List
+from datetime import date
+from enum import StrEnum
 
-from shared_types.app_types import BLDocument, BaseEmail, BaseAttachment
+class DocType(StrEnum):
+    HBL = "hbl"
+    MBL = "mbl"
 
 class Container(BaseModel):
     number: str = Field(..., description="The container ID (e.g., XEBL5869714)")
@@ -23,11 +26,12 @@ class CargoDescription(BaseModel):
 
 class BillOfLading(BaseModel):
     # --- Identifiers ---
-    doc_type: Literal["hbl", "mbl"] = Field(..., description="Classify based on document title: 'hbl' for House Bill of Lading, 'mbl' for Master Bill of Lading")
+    doc_type: DocType = Field(..., description="Classify based on document title: 'hbl' for House Bill of Lading, 'mbl' for Master Bill of Lading")
     bl_number: str = Field(..., description="The main B/L number (e.g., MBL-3135534, HBL-5437923)")
     booking_number: Optional[str] = Field(None, description="Booking Reference number (e.g., BK37053918)")
     generated_at: str = Field(..., description="The date the billing is generated at in ISO8601 format")
-
+    issuer_name: str = Field(..., description="The name of the company that issued the document. This is often found at the top of the document next to 'Issued by:'. E.g., 'Hapag-Lloyd' or 'Nordic Freight Solutions (NVOCC)'")
+    
     # --- Entities ---
     shipper_name: str = Field(..., description="Name of the shipper")
     shipper_address: Optional[str] = Field(None, description="Full address of the shipper")
@@ -48,9 +52,9 @@ class BillOfLading(BaseModel):
     place_of_delivery: Optional[str] = Field(None, description="Place of Delivery")
 
     # --- Dates (ISO8601) ---
-    etd: Optional[date] = Field(None, description="Estimated Time of Departure (ETD) in ISO8601 format")
-    eta: Optional[date] = Field(None, description="Estimated Time of Arrival (ETA) in ISO8601 format")
-    issue_date: Optional[date] = Field(None, description="Date of Issue in ISO8601 format")
+    etd: Optional[date] = Field(None, description="Estimated Time of Departure (ETD) in YYYY-MM-DD format")
+    eta: Optional[date] = Field(None, description="Estimated Time of Arrival (ETA) in YYYY-MM-DD format")
+    issue_date: Optional[date] = Field(None, description="Date of Issue in in YYYY-MM-DD format")
 
     # --- Cargo Details ---
     containers: List[Container] = Field(default_factory=list, description="List of all containers")
@@ -58,33 +62,3 @@ class BillOfLading(BaseModel):
 
     # --- Financials ---
     freight_terms: Optional[Literal["Prepaid", "Collect"]] = Field(None, description="Freight payment terms")
-
-    email_status: Literal["pre_alert", "draft"] = Field(..., description="An email is status is classified either as pre_alert or draft. To know which one it is, we use the newest body (latest_body_text) since it will contain wording indicating pre-alert or draft.")
-
-class BatchExtractionResult(BaseModel):
-    documents: List[BillOfLading]
-
-
-class DbBL(BillOfLading):
-    dedupe_key: str
-    email: BaseEmail
-    attachment: BLDocument
-    created_at: Optional[Any] = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class DbRetrievedAttachment(BaseModel):
-    doc_type: Literal["hbl", "mbl"] = Field(..., description="Bill of Lading type: either mbl (master) or hbl (House)")
-    
-    page_range: tuple[int, int]
-    bl_number: str = Field(..., description="Bill of Lading (BL) number is unique reference number. Examples: MBL-2677407 or HBL-5437923")
-    generated_at: str | None
-
-    attachment_id: str = Field(..., min_length=1, description="Attachment Id provided by Gmail API")
-    email_id: str = Field(..., min_length=1, description="Email Id this attachment belongs to. It is provided by Gmail API")
-    filename: str
-
-class DbRetrievedBL(BillOfLading):
-    dedupe_key: str
-    email: BaseEmail
-    doc_id: str = Field(..., description="The Firestore Generated ID for the document in the database")
-    created_at: Optional[Any] = Field(default_factory=lambda: datetime.now(timezone.utc))
-    attachment: DbRetrievedAttachment

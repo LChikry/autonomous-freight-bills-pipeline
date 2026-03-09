@@ -1,92 +1,148 @@
-import base64
-import logging
-import datetime
+import base64, hashlib
+from loguru import logger
+from pydantic import SecretStr
+from returns.result import Result, Success, Failure
+from enum import StrEnum, auto
 
-from services.auth_gmail import get_gmail_service
-from shared_types.app_types import Email, FetchedAttachment
+from app.core import log_call
+from app.services.auth_gmail import get_gmail_service
+from app.models.emails import Email, Attachment, EmailBody, EmailHeader
+from app.schemas.gmail_service import GmailMessageBlueprint, GmailMessageResponse, GmailHeader, GmailPart
 
-logger = logging.getLogger(__name__)
+__init__ = ["fetch_latest_emails", "FetchLatestEmailsError"]
 
-def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "INBOX") -> list[Email]:
-    logger.info(f"Fetching latest {limit} emails in {label_id}...")
-    
+class FetchLatestUnrecordedEmailsError(StrEnum):
+    NO_EMAILS = auto()
+    API_FAILED = auto()
+    BAD_API_RESPONSE = auto()
+
+async def fetch_latest_emails(limit: int = 10, user_id: str = 'me', label_id: str = "INBOX") -> Result[list[Email], FetchLatestUnrecordedEmailsError]:
     service = get_gmail_service()
-    results: dict = (
-            service.users().messages().list(userId=user_id, labelIds=[label_id], maxResults=limit).execute()
-        )
-    messages_ids: list[dict] = results.get("messages", [])
-    if not messages_ids:
-        logger.info("No emails found to fetch")
-        return []
+    try:
+        with log_call("Gmail/messages/list", max_email=limit, email_label=label_id, user_id=user_id):
+            results = (
+                service.users().messages().list(userId=user_id, labelIds=[label_id], maxResults=limit).execute()
+            )
+    except Exception:
+        return Failure(FetchLatestUnrecordedEmailsError.API_FAILED)
     
-    logger.debug(f"{len(messages_ids)} emails found; starting individual fetching")
-    result = []
-    for msg_id in messages_ids:
-        logger.debug(f"Fetching email_id={msg_id}")
-        email: dict = (
-            service.users().messages().get(userId="me", id=msg_id["id"], format="full").execute()
-        )
-
-        if "multipart" not in email["payload"]["mimeType"].lower():
-            logger.debug(f"Skipping email_id={msg_id["id"]} because it has no attachments")
-            continue
-        
-        raw_text_excerpt, latest_body_text, attachments = parse_payload(service, email["payload"], user_id, msg_id["id"])
-        
-        if not attachments:
-            logger.debug(f"Skipping email_id={msg_id["id"]} because it has no attachments")
-            continue
-
-        if not latest_body_text or not raw_text_excerpt:
-            logger.warning(f"Skipping email_id={msg_id} because it has no body text")
-            continue
-
-        subject, source_from = parse_headers(email['payload']['headers'])
-        
-        print('\n\n', datetime.datetime.fromtimestamp(float(email["internalDate"]) /1000.0, tz=datetime.timezone.utc).isoformat())
-        
-        email_data = Email(
-            id=email["id"],
-            subject=subject,
-            source_from=source_from,
-            received_at=datetime.datetime.fromtimestamp(float(email["internalDate"]) /1000.0, tz=datetime.timezone.utc).isoformat(),
-            latest_body_text=latest_body_text,
-            raw_text_excerpt=raw_text_excerpt,
-            attachments=attachments,
-        )
-        result.append(email_data)
+    try:
+        messages: list[GmailMessageBlueprint] = [
+            GmailMessageBlueprint(**msg) for msg in results["messages"]
+        ]
+        if not messages:
+            logger.debug("No emails found to fetch")
+            return Failure(FetchLatestUnrecordedEmailsError.NO_EMAILS)
+    except Exception:
+        logger.exception("Gmail/messages/list response model is not as expected")
+        return Failure(FetchLatestUnrecordedEmailsError.BAD_API_RESPONSE)
     
-    logger.info(f"{len(result)} emails fetched for processing, {len(messages_ids)} emails skipped")
-    return result
+    logger.debug(f"{len(messages)} emails found")
+    result: list[Email] = []
+    
+    seen_attachments = set()
+    for msg in messages:
+        with logger.contextualize(message_id=msg.id):
+            email_data = _fetch_message_data(service, user_id, msg, seen_attachments)
+            if not email_data: continue
+            result.append(email_data)
+
+    logger.debug(f"{len(result)} emails fetched for processing, {len(messages) - len(result)} emails skipped")
+    return Success(result)
 
 
-def parse_headers(headers: dict):
-    subject, source_from = "", ""
+def _fetch_message_data(service, user_id: str, msg: GmailMessageBlueprint, unique_docs: set) -> Email | None:
+    logger.debug(f"Fetching a new email")
+    
+    try:
+        with log_call("Gmail/messages/get"):
+            message_response = (
+                service.users().messages().get(userId="me", id=msg.id, format="full").execute()
+            )
+    except Exception:
+        return
+    
+    try:
+        email = GmailMessageResponse(**message_response)
+        if not email.has_attachments:
+            logger.debug(f"Skipping the email because it has no attachments")
+            return
+    except Exception:
+        logger.exception("Gmail/messages/get response model is not as expected")
+        return
+    
+    attachments = _extract_exclusive_attachments(service, user_id, email, unique_docs)
+    if not attachments:
+        logger.debug(f"Skipping the email because it has no bills")
+        return
+
+    email_body: EmailBody = _extract_email_body(email)
+    if not email_body.has_body:
+        logger.debug(f"Skipping email because it has no body text")
+        return
+
+    email_header: EmailHeader= _parse_headers(email.payload.headers)
+    
+    return Email(
+        email_id=email.id,
+        subject=email_header.subject,
+        sender=email_header.sender,
+        full_body=email_body.full_body,
+        recent_body=email_body.recent_body,
+        received_at=email.internalDate,
+        unique_attachments=attachments,
+    )
+
+
+def _parse_headers(headers: list[GmailHeader]) -> EmailHeader:
+    logger.debug("parsing header")
+    subject, sender = "", ""
     for h in headers:
-        name = h['name']
-        
-        if name == 'Subject':
-            subject = h['value']
-        elif name == 'From':
-            source_from = h['value']
-        
-        if subject and source_from: break
+        if h.is_subject: subject = h.value
+        if h.is_sender: sender = h.value
+        if subject and sender: break
     
     if 'Fwd: ' in subject: subject = subject[5:]
-    return (subject, source_from)
+    return EmailHeader(
+        subject=subject,
+        sender=SecretStr(sender),
+    )
 
 
-def parse_payload(service, payload, user_id, msg_id) -> tuple[str | None, str | None, list[FetchedAttachment] | None]:
-    logger.debug(f"Parsing email_id={msg_id} body for latest body text")
-    body_text = get_email_body(payload)
-    latest_body_text = extract_latest_body_text(body_text)
-    attachments = extract_attachments(payload, service, user_id, msg_id)
+def _extract_email_body(email: GmailMessageResponse) -> EmailBody:
+    logger.debug(f"Parsing for full email text content and latest body")
+    full_body = _get_email_full_body(email.payload) or ""
+    recent_body = _extract_latest_body_text(full_body) or ""
+    return EmailBody(
+        full_body=full_body,
+        recent_body=recent_body,
+    )
+
+
+def _get_email_full_body(part: GmailPart) -> str | None:
+    if not part: return None
     
-    logger.info(f"{len(attachments)} attachments (multi and non-multi) are detected for processing")
-    return (body_text, latest_body_text, attachments)
+    def decode_data(data):
+        """Helper to handle Base64 decoding"""
+        if not data:
+            return ""
+        # Python requires padding for base64 decoding if length isn't divisible by 4
+        padding = len(data) % 4
+        if padding:
+            data += '=' * (4 - padding)
+        return base64.urlsafe_b64decode(data).decode('utf-8')
+    
+    if part.is_text:
+        assert part.body, "body in part must exist, check is_text logic"
+        return decode_data(part.body.data)
+    
+    for subpart in part.parts:
+        text = _get_email_full_body(subpart)
+        if text: return text
+    return None
 
 
-def extract_latest_body_text(body_text) -> str | None:
+def _extract_latest_body_text(body_text: str | None) -> str | None:
     if not body_text: return None
     
     separator = "---------- Forwarded message ---------"
@@ -95,67 +151,53 @@ def extract_latest_body_text(body_text) -> str | None:
     return body_text.split(separator)[0].strip()
 
 
-def get_email_body(payload) -> str | None:
-    if not payload: return None
+def _extract_exclusive_attachments(service, user_id: str, email: GmailMessageResponse, seen_attachments: set) -> list[Attachment]:
+    logger.debug("extracting attachments")
+    bill_attachments = []
     
-    if payload["mimeType"].lower() == "text/plain" and "body" in payload:
-        return decode_data(payload["body"].get("data", ""))
-    
-    if "parts" not in payload: return None
-    for part in payload["parts"]:
-        text = get_email_body(part)
-        if text: return text
-
-
-def extract_attachments(payload, service, user_id, msg_id) -> list[FetchedAttachment]:
-    pdfs = []
-    
-    parts = [payload]
+    parts: list[GmailPart] = [email.payload]
     while parts:
         part = parts.pop()
+        parts.extend(part.parts)
         
-        if part.get('parts'):
-            parts.extend(part['parts'])
-        
-        if not part.get('filename') or not part.get('body', {}).get('attachmentId'):
-            continue
-        
-        if part["mimeType"].lower() != "application/pdf":
-            logger.debug(f"A non PDF attachment is skipped in email_id={msg_id}")
+        if not part.is_attachment: continue
+        if not part.is_pdf:
+            logger.debug(f"A non PDF attachment is skipped")
             continue
 
-        att_id = part['body']['attachmentId']
-        filename = part['filename']
-        logger.debug(f"An attachment in email_id={msg_id} is found with id={att_id} and name={filename}")
+        assert part.body, "part.body must exist, check is_attachment logic!"
+        assert part.body.attachmentId and part.filename, "attachment information must exist"
+        att_id = part.body.attachmentId 
+        filename = part.filename
         
-        # FETCH ATTACHMENT: Download the actual data
-        att_id = part["body"]["attachmentId"]
-        attachment = service.users().messages().attachments().get(
-            userId=user_id,
-            messageId=msg_id,
-            id=att_id
-        ).execute()
+        with logger.contextualize(attachment_id=att_id, filename=filename):
+            logger.debug(f"A bill attachment found; start fetching")
+            try:
+                with log_call("Gmail/messages/attachments/get"):
+                    attachment = service.users().messages().attachments().get(
+                        userId=user_id,
+                        messageId=email.id,
+                        id=att_id
+                    ).execute()
+            except Exception:
+                return []
+
+            try:
+                file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
+            except Exception:
+                logger.exception("Gmail.users.messages.attachments model structure was not as expected")
+                return []
         
-        file_data = base64.urlsafe_b64decode(attachment['data'].encode('UTF-8'))
+        file_hash = hashlib.sha256(file_data).hexdigest()
+        if file_hash in seen_attachments: continue
+        seen_attachments.add(file_hash)
         
-        pdfs.append(FetchedAttachment(
+        bill_attachments.append(Attachment(
             attachment_id=att_id,
-            email_id=msg_id,
+            email_id=email.id,
             filename=filename,
-            content=file_data
+            content=file_data,
+            original_content_sha256=file_hash
         ))
 
-    return pdfs
-
-def decode_data(data):
-    """Helper to handle Base64 decoding"""
-    if not data:
-        return ""
-    # Python requires padding for base64 decoding if length isn't divisible by 4
-    padding = len(data) % 4
-    if padding:
-        data += '=' * (4 - padding)
-    return base64.urlsafe_b64decode(data).decode('utf-8')
-
-if __name__ == "__main__":
-    fetch_latest_emails()
+    return bill_attachments

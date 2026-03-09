@@ -1,99 +1,53 @@
-import logging
+from loguru import logger
+from attrs import asdict
 
-import services.repository as repository
-from shared_types.app_types import BLDocument, BaseEmail, Email
-from shared_types.bl_schema import BillOfLading, DbBL
+import app.services.repository as repository
+from app.models.emails import AttachmentTransformed
+from app.schemas.llm import LLMResponse
+from app.schemas.db import BLRecordCreate, BLRecordEmail, BLRecordAttachment
 
-logger = logging.getLogger(__name__)
-
-async def check_duplicates(bls: list[BLDocument]):
-    if not bls: return []
-
-    num_all_bls = len(bls)
-    # 1. Dedupe against co-fetched Documents
-    seen_keys1 = set()
-    seen_keys2 = set()
-    unique_in_batch = []
-
-    for b in bls:
-        dedupe_key1 = repository.get_dedupe_key_from_bl_number(b.bl_number, b.filename)
-        dedupe_key2 = repository.get_dedupe_key_from_page_range(b.email_id, b.filename, b.page_range)
-
-        if dedupe_key1 in seen_keys1 or dedupe_key2 in seen_keys2: continue
-        seen_keys1.add(dedupe_key1)
-        seen_keys2.add(dedupe_key2)
-        unique_in_batch.append(b)
+async def get_unique_bl_attachment(bills: list[AttachmentTransformed]) -> tuple[list[AttachmentTransformed], list[AttachmentTransformed]]:
+    assert bills, "the list must have attachments"
+    logger.debug("removing duplicate attachments in db")
     
-    # 2. Checking against the DB
-    final_unique_bls = []
-    for b in unique_in_batch:
-        if await repository.is_bl_exist(b): continue
-        final_unique_bls.append(b)
-    
-    num_diff_bls = num_all_bls - len(final_unique_bls)
-    if len(final_unique_bls) < num_all_bls:
-        logger.info(f"We have skipped {num_diff_bls} BLs because they are duplicates")
-    
-    return final_unique_bls
-
-
-def create_bls_for_db(pbls: list[BillOfLading], bls: list[BLDocument], emails: dict[str, Email]):
-    db_bls: list[DbBL] = []
-    
-    for i in range(len(pbls)):
-        b, p = bls[i], pbls[i]
-        e = emails[b.email_id]
+    unchecked_bl: list[AttachmentTransformed] = []
+    unique_bills: list[AttachmentTransformed] = []
+    for b in bills:
+        # print("\ndocument in question", b.original_content_sha256, "bl_number", b.bl_number, "issuer_name", b.issuer_name, end="\n\n")
+        if (
+            await repository.is_bl_attachment_exist(b.original_content_sha256, b.page_range, b.doc_type)
+        ): continue
         
-        db_bls.append(DbBL(
-            dedupe_key=repository.get_dedupe_key_from_bl_number(p.bl_number or b.bl_number, b.filename),
-            doc_type=p.doc_type or b.bl_number,
-            bl_number=p.bl_number or b.bl_number,
-            booking_number=p.booking_number,
-            generated_at=p.generated_at or b.generated_at or "",
-            
-            shipper_name=p.shipper_name,
-            shipper_address=p.shipper_address,
-            consignee_name=p.consignee_name,
-            consignee_address=p.consignee_address,
-            notify_party_name=p.notify_party_name,
-            carrier_name=p.carrier_name,
-            
-            vessel_name=p.vessel_name,
-            voyage_number=p.voyage_number,
-            port_of_loading=p.port_of_loading,
-            port_of_discharge=p.port_of_discharge,
-            place_of_receipt=p.place_of_receipt,
-            place_of_delivery=p.place_of_delivery,
-            
-            etd=p.etd,
-            eta=p.eta,
-            issue_date=p.issue_date,
-            
-            containers=p.containers,
-            goods_summary=p.goods_summary,
-            
-            freight_terms=p.freight_terms,
-            
-            email_status=p.email_status,
-            attachment=BLDocument(
-                attachment_id=b.attachment_id,
-                email_id=b.email_id,
-                filename=b.filename,
-                content=b.content,
-                page_range=b.page_range,
-                bl_number=b.bl_number or p.bl_number,
-                generated_at=b.generated_at or p.generated_at,
-                doc_type=b.doc_type or p.doc_type
-            ),
-            email=BaseEmail(
-                id=e.id,
-                subject=e.subject,
-                received_at=e.received_at,
-                raw_text_excerpt=e.raw_text_excerpt,
-                latest_body_text=e.latest_body_text,
-                source_from=e.source_from,
-                email_status=p.email_status
-            )
-        ))
+        # print("\ndocument don't exist:", b.original_content_sha256, end="\n\n")
+        
+        if not b.bl_number or not b.issuer_name:
+            unchecked_bl.append(b)
+            continue
+        
+        if (
+            await repository.is_bl_record_exist(b.bl_number, b.issuer_name, b.doc_type)
+        ): continue
+        
+        # print("\ndocument don't exist:", "bl_number", b.bl_number, "issuer_name", b.issuer_name, end="\n\n")
+        # exit()
+        unique_bills.append(b)
     
-    return db_bls
+    diff_count = len(bills) - len(unique_bills)
+    if diff_count:
+        logger.debug(f"{diff_count} duplicates found before processing")
+    
+    return unique_bills, unchecked_bl
+
+
+# hashed_bl: request_id (LLMResponse) -> AttachmentTransformed
+async def get_unique_bl_records(bl_data: list[LLMResponse], hashed_bl: dict[str, AttachmentTransformed]) -> list[LLMResponse]:
+    assert bl_data, "the list must have bills records"
+    
+    unique_bl_data: list[LLMResponse] = []
+    for b in bl_data:
+        if (
+            await repository.is_bl_record_exist(b.bl_number, b.issuer_name, b.doc_type)
+        ): continue
+        
+        unique_bl_data.append(b)
+    return unique_bl_data

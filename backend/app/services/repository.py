@@ -1,47 +1,60 @@
-import hashlib
-from google.cloud.firestore import FieldFilter, AsyncClient, Query
-import logging
+from google.cloud.firestore import AsyncClient, Query, FieldFilter, And
+from loguru import logger
 import traceback
-from typing import Literal
 from fastapi import HTTPException
 
-from core import settings
-from shared_types.app_types import BLDocument
-from shared_types.bl_schema import DbBL, DbRetrievedBL
+from app.core import settings
+from app.models.emails import AttachmentTransformed
+from app.models.bill_of_lading import DocType
+from app.schemas.db import BLRecordCreate, BLRecord
 
-
-logger = logging.getLogger(__name__)
 db_client = AsyncClient.from_service_account_json(settings.firestore_client_path)
 
 if not db_client:
     raise HTTPException(status_code=500, detail="Database not initialized")
 
 
-def get_dedupe_key_from_bl_number(bl_number: str, file_name: str):
-    raw_string = f"{bl_number}_{file_name}"
-    return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
-
-
-def get_dedupe_key_from_page_range(email_id: str, filename: str, page_range: tuple[int, int]):
-    raw_string = f"{email_id}_{filename}_{page_range}"
-    return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
-
-
-async def is_bl_exist(attachment: BLDocument) -> bool:
-    async def db_query(collection_name: str):
-        dedupe_key = get_dedupe_key_from_bl_number(
-            attachment.bl_number, 
-            attachment.filename
-        )
-        return await db_client.collection(collection_name).where(filter=FieldFilter("dedupe_key", "==", dedupe_key)).limit(1).get()
+async def is_bl_attachment_exist(original_content_sha256: str, page_range: tuple[int ,int], doc_type: DocType | None) -> bool:
     
-    if attachment.doc_type == "hbl" and len(await db_query("hbl")) > 0: 
-        return True
-        
-    return attachment.doc_type == "mbl" and len(await db_query("mbl")) > 0
+    async def db_query(collection_name: str):
+        f1 = FieldFilter("attachment.original_content_sha256", "==", original_content_sha256)
+        f2 = FieldFilter("attachment.page_range", "==", list(page_range))
+        return (
+            await db_client.collection(collection_name)
+            .where(filter=And([f1, f2]))
+            .limit(1)
+            .get()
+        )
+    
+    if not doc_type:
+        hbl_found = len(await db_query(DocType.HBL)) != 0
+        mbl_found = len(await db_query(DocType.MBL)) != 0
+        return True if mbl_found or hbl_found else False
+    
+    return len(await db_query(doc_type)) != 0
 
 
-async def save_bls(bls: list[DbBL]):
+async def is_bl_record_exist(bl_number: str, issuer_name: str, doc_type: DocType | None) -> bool:
+    async def db_query(collection_name: str):
+        f1 = FieldFilter("bl_number", "==", bl_number)
+        f2 = FieldFilter("issuer_name", "==", issuer_name)
+        return (
+            await db_client.collection(collection_name)
+            .where(filter=And([f1, f2]))
+            .limit(1)
+            .get()
+        )
+    
+    if not doc_type:
+        hbl_found = len(await db_query(DocType.HBL)) != 0
+        mbl_found = len(await db_query(DocType.MBL)) != 0
+        return True if mbl_found or hbl_found else False
+    
+    return len(await db_query(doc_type)) != 0
+
+
+
+async def save_bl_documents(bls: list[BLRecordCreate]):
     if not bls:
         logger.info("No BL to save in database")
         return
@@ -50,9 +63,15 @@ async def save_bls(bls: list[DbBL]):
     
     try:
         for bill in bls:
-            logger.debug(f"Attempting to save BL: {bill.bl_number}") 
-            doc_data = bill.model_dump(mode='json', exclude_none=True, exclude={'attachment': {'content': True}}) 
-            update_time, doc_ref = await db_client.collection(bill.doc_type).add(doc_data)
+            logger.debug(f"Attempting to save BL: {bill.bl_number}")
+            
+            doc_data = bill.model_dump(
+                mode='json',
+                exclude_none=True,
+                context= {"reveal_secret_types": True},
+            )
+            _, doc_ref = await db_client.collection(bill.doc_type).add(doc_data)
+            
             logger.debug(f"BL is saved {bill.doc_type.upper()} | Doc ID: {doc_ref.id}")
             
     except Exception as e:
@@ -62,7 +81,7 @@ async def save_bls(bls: list[DbBL]):
 
 
 async def get_next_page_documents(
-    doc_type: Literal["hbl", "mbl"],
+    doc_type: DocType,
     limit: int,
     next_cursor: str | None
 ):
@@ -72,18 +91,18 @@ async def get_next_page_documents(
     if next_cursor:
         cursor_doc = await ref.document(next_cursor).get()
         if not cursor_doc.exists:
-            raise HTTPException(status_code=400, detail="Invalid next_cursor")
+            raise HTTPException(status_code=422, detail="Invalid next_cursor")
         
         query = query.start_after(cursor_doc)
     
     docs = query.limit(limit + 1).stream()
     
-    results: list[DbRetrievedBL] = []
+    results: list[BLRecord] = []
     async for doc in docs:
         doc_data = doc.to_dict()
         if not doc_data: continue
         doc_data['doc_id'] = doc.id
-        results.append(DbRetrievedBL(**doc_data))
+        results.append(BLRecord(**doc_data))
     
     new_next_cursor = results.pop().doc_id if len(results) > limit else None
     new_prev_cursor = results[0].doc_id if results else None
@@ -91,7 +110,7 @@ async def get_next_page_documents(
 
 
 async def get_prev_page_documents(
-    doc_type: Literal["hbl", "mbl"],
+    doc_type: DocType,
     limit: int,
     prev_cursor: str,
 ):
@@ -99,7 +118,7 @@ async def get_prev_page_documents(
     
     anchor_doc = await ref.document(prev_cursor).get()
     if not anchor_doc.exists:
-        raise HTTPException(status_code=400, detail="Invalid prev_cursor")
+        raise HTTPException(status_code=422, detail="Invalid prev_cursor")
     
     docs = await (
         ref.order_by("created_at", direction=Query.DESCENDING)
@@ -110,7 +129,7 @@ async def get_prev_page_documents(
     has_prev = len(docs) > limit # since we modify the len of results
     
     new_prev_cursor = None
-    results: list[DbRetrievedBL] = []
+    results: list[BLRecord] = []
     for i, doc in enumerate(docs):
         doc_data = doc.to_dict()
         
@@ -118,7 +137,7 @@ async def get_prev_page_documents(
         if i == 1: new_prev_cursor = doc.id
         
         doc_data["doc_id"] = doc.id
-        results.append(DbRetrievedBL(**doc_data))
+        results.append(BLRecord(**doc_data))
     
     new_prev_cursor = new_prev_cursor if has_prev > limit else None
     new_next_cursor = results[-1].doc_id if results else None

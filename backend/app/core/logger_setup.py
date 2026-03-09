@@ -14,17 +14,17 @@ def init_logger():
         logger.add(
             sys.stdout,
             format=_log_serializer,
+            colorize=False,
             level=settings.logging_level,
             enqueue=True,
             backtrace=True,
             diagnose=False,
-            colorize=False,
         )
         return
     
     logger.add(
         sys.stderr,
-        format=_log_formatter,
+        # format=_log_formatter,
         colorize=True,
         level=settings.logging_level,
         backtrace=True,
