@@ -2,6 +2,8 @@
 
 A full-stack pipeline, automating the extraction of operational data from emails and complex bills.
 
+![Frontend Interface](assets/interface.png)
+
 ## How to Run Locally
 
 This section covers setting up and running both the backend and frontend services on your local machine.
