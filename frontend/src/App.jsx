@@ -86,7 +86,7 @@ function App() {
 	return (
 		<div className="container">
 			<header className="header">
-				<h1>BofL Analyzer</h1>
+				<h1>AI-Powered Logistics Document Pipeline</h1>
 				<div className="actions">
 					<button
 						className="btn-primary"
