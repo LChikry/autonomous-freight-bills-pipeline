@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    service_name: str = "BofL Analyzer API"
+    service_name: str = "AI-Powered Logistics Document Pipeline API"
     service_version: str = "v0.1.0"
     environment: Literal["dev", "prod"]
     cors_origins: list[str]

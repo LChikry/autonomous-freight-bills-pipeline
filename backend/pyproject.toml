@@ -2,9 +2,9 @@
 entrypoint = "app.main:app"
 
 [project]
-name = "BofL"
-version = "0.1.0"
-description = "Add your description here"
+name = "AIPoweredLogisticsDocumentPipeline"
+version = "1.0.0"
+description = "A full-stack pipeline, automating the extraction of operational data from emails and complex bills."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

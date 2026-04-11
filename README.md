@@ -1,4 +1,6 @@
-# BofL Analyzer
+# AI-Powered Logistics Document Pipeline
+
+A full-stack pipeline, automating the extraction of operational data from emails and complex bills.
 
 ## How to Run Locally
 
