@@ -1,4 +1,4 @@
-# AI-Powered Logistics Document Pipeline
+# AI-Powered Autonomous Freight Bills Pipeline
 
 A full-stack pipeline, automating the extraction of operational data from emails and complex bills.
 
@@ -83,18 +83,18 @@ The frontend will start (usually) at `http://localhost:5173` (or another port if
 
 1. **Start Backend:**
 
-    ```bash
-    cd backend
-    source venv/bin/activate
-    fastapi dev src/main.py
-    ```
+   ```bash
+   cd backend
+   source venv/bin/activate
+   fastapi dev src/main.py
+   ```
 
 2. **Start Frontend (in another terminal):**
 
-    ```bash
-    cd frontend
-    pnpm dev
-    ```
+   ```bash
+   cd frontend
+   pnpm dev
+   ```
 
 3. **Open Frontend in Browser:**
    Navigate to `http://localhost:5173`
@@ -103,9 +103,9 @@ The frontend will start (usually) at `http://localhost:5173` (or another port if
    Click the "Process" button in the UI.
 
 5. **View Results:**
-    - `GET /hbl`: Click HBL tab
-    - `GET /mbl`: Click MBL tab
-    - You can check logs in both backend terminal and browser console.
+   - `GET /hbl`: Click HBL tab
+   - `GET /mbl`: Click MBL tab
+   - You can check logs in both backend terminal and browser console.
 
 ## Credential Setups
 
